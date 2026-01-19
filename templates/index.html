@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vengatesan Car Parking - Bill Generator</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            background: white;
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        
+        .header h1 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+        
+        .header p {
+            color: #666;
+            font-size: 14px;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #333;
+        }
+        
+        input, select {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+        }
+        
+        input:focus, select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        .btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 15px 30px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            width: 100%;
+            transition: transform 0.2s;
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+        }
+        
+        .business-info {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        
+        .business-info h3 {
+            color: #333;
+            margin-bottom: 5px;
+        }
+        
+        .business-info p {
+            color: #666;
+            margin: 2px 0;
+        }
+        
+        .feature-info {
+            background: #e7f3ff;
+            padding: 10px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            text-align: center;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Vengatesan Car Parking</h1>
+            <p>Monthly Bill Generator - ONLINE</p>
+        </div>
+        
+        <div class="business-info">
+            <h3>Business Information</h3>
+            <p><strong>Address:</strong> Tittagudi</p>
+            <p><strong>Contact:</strong> 9791365506</p>
+            <p><strong>Monthly Rate:</strong> Rs. 1000</p>
+            <p><strong>Status:</strong> 🟢 Running Online</p>
+        </div>
+
+        <div class="feature-info">
+            <strong>✨ New Feature:</strong> Automatic Bill Numbering System (VP0001, VP0002, ...)
+        </div>
+        
+        <form action="/generate_bill" method="POST">
+            <div class="form-group">
+                <label for="name">Customer Name:</label>
+                <input type="text" id="name" name="name" required placeholder="Enter customer full name">
+            </div>
+            
+            <div class="form-group">
+                <label for="vehicle_no">Vehicle Number:</label>
+                <input type="text" id="vehicle_no" name="vehicle_no" required placeholder="e.g., TN45AB1234">
+            </div>
+            
+            <div class="form-group">
+                <label for="vehicle_type">Vehicle Type:</label>
+                <select id="vehicle_type" name="vehicle_type" required>
+                    <option value="car">Car</option>
+                    <option value="bike">Bike</option>
+                    <option value="truck">Truck</option>
+                </select>
+            </div>
+            
+            <div class="form-group">
+                <label for="month">Month:</label>
+                <select id="month" name="month" required>
+                    {% for month in months %}
+                    <option value="{{ month }}">{{ month }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            
+            <div class="form-group">
+                <label for="year">Year:</label>
+                <input type="number" id="year" name="year" value="2024" min="2020" max="2030" required>
+            </div>
+            
+            <div class="form-group">
+                <label for="payment_mode">Payment Mode:</label>
+                <select id="payment_mode" name="payment_mode" required>
+                    <option value="Online">Online</option>
+                    <option value="Cash">Cash</option>
+                </select>
+            </div>
+            
+            <button type="submit" class="btn">Generate Parking Bill PDF</button>
+        </form>
+    </div>
+
+    <script>
+        // Set current year as default
+        document.getElementById('year').value = new Date().getFullYear();
+    </script>
+</body>
+</html>
