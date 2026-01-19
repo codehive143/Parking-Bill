@@ -359,8 +359,8 @@ def generate():
         pdf.set_font("Arial", style="B", size=8)
         pdf.cell(200, 5, txt="Development Partner", ln=1, align="C")
         pdf.set_font("Arial", size=7)
-        pdf.cell(200, 4, txt="Email: codehive.dev@gmail.com", ln=1, align="C")
-        pdf.cell(200, 4, txt="Phone: +91 98765 43210", ln=1, align="C")
+        pdf.cell(200, 4, txt="Email: codehive143@gmail.com", ln=1, align="C")
+        pdf.cell(200, 4, txt="Phone: +91 63745 76277", ln=1, align="C")
         pdf.cell(200, 4, txt="Web: www.codehive.dev", ln=1, align="C")
         pdf.cell(200, 4, txt="Specialized in Web Applications & Automation", ln=1, align="C")
         pdf.ln(3)
@@ -388,3 +388,4 @@ def generate():
 
 if __name__ == '__main__':
     app.run(debug=True)
+
