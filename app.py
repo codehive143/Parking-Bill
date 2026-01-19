@@ -259,8 +259,8 @@ HTML_TEMPLATE = '''
         </div>
 
         <div class="developer-info">
-            <div class="developer-contact">📧 Email: codehive.dev@gmail.com</div>
-            <div class="developer-contact">📱 Phone: +91 98765 43210</div>
+            <div class="developer-contact">📧 Email: codehive143@gmail.com</div>
+            <div class="developer-contact">📱 Phone: +91 63745 76277</div>
             <div class="developer-contact">🌐 Website: www.codehive.dev</div>
             <div class="developer-contact">💼 Specialized in: Web Applications & Automation</div>
         </div>
@@ -388,4 +388,5 @@ def generate():
 
 if __name__ == '__main__':
     app.run(debug=True)
+
 
