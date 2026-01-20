@@ -1,392 +1,387 @@
-from flask import Flask, render_template_string, request, send_file
+# app.py
+from flask import Flask, render_template, request, send_file, redirect, url_for, flash, session
+from flask_sqlalchemy import SQLAlchemy
+from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from fpdf import FPDF
-from datetime import datetime
-import io
+from datetime import datetime, date
+import os
+from werkzeug.security import generate_password_hash, check_password_hash
+from functools import wraps
 
 app = Flask(__name__)
+app.config['SECRET_KEY'] = 'your-secret-key-here-change-in-production'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///parking.db'
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+db = SQLAlchemy(app)
+login_manager = LoginManager(app)
+login_manager.login_view = 'login'
 
 # Exactly 14 parking slots
-PARKING_SLOTS = [f"SLOT-{i:02d}" for i in range(1, 15)]  # SLOT-01 to SLOT-14
+PARKING_SLOTS = [f"SLOT-{i:02d}" for i in range(1, 15)]
+YEARS = [str(year) for year in range(2020, 2031)]
 
-# Year options
-YEARS = [str(year) for year in range(2020, 2031)]  # 2020 to 2030
+# Database Models
+class User(UserMixin, db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(80), unique=True, nullable=False)
+    password = db.Column(db.String(200), nullable=False)
+    role = db.Column(db.String(20), default='operator')  # admin, operator
+    created_at = db.Column(db.DateTime, default=datetime.now)
 
-HTML_TEMPLATE = '''
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Parking Bill Generator</title>
-    <style>
-        body { 
-            font-family: Arial, sans-serif; 
-            max-width: 600px; 
-            margin: 20px auto; 
-            padding: 20px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-        }
-        .container {
-            background: white;
-            padding: 30px;
-            border-radius: 15px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-            position: relative;
-        }
-        .main-header {
-            display: flex;
-            align-items: center;
-            margin-bottom: 20px;
-            border-bottom: 2px solid #eee;
-            padding-bottom: 15px;
-        }
-        .parking-logo {
-            width: 80px;
-            height: 80px;
-            background: linear-gradient(135deg, #4CAF50, #45a049);
-            border-radius: 15px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: white;
-            font-weight: bold;
-            font-size: 24px;
-            margin-right: 20px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
-        }
-        .header-text h2 {
-            margin: 0;
-            color: #333;
-            font-size: 28px;
-        }
-        .header-text p {
-            margin: 5px 0 0 0;
-            color: #666;
-            font-size: 14px;
-        }
-        .codehive-logo-section {
-            background: linear-gradient(135deg, #1a2a3a, #2c3e50);
-            color: white;
-            padding: 20px;
-            border-radius: 10px;
-            margin: 25px 0;
-            text-align: center;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
-        }
-        .codehive-main {
-            font-size: 32px;
-            font-weight: bold;
-            margin-bottom: 10px;
-            line-height: 1.2;
-        }
-        .codehive-code {
-            color: #4ECDC4;
-        }
-        .codehive-hive {
-            color: #FF6B6B;
-        }
-        .codehive-tagline {
-            font-size: 14px;
-            color: #bdc3c7;
-            font-style: italic;
-            letter-spacing: 1px;
-        }
-        .form-group { 
-            margin: 20px 0; 
-        }
-        label { 
-            display: block; 
-            margin-bottom: 8px; 
-            font-weight: bold;
-            color: #333;
-        }
-        input, select { 
-            width: 100%; 
-            padding: 12px; 
-            border: 2px solid #ddd; 
-            border-radius: 8px;
-            font-size: 16px;
-        }
-        input:focus, select:focus { 
-            outline: none; 
-            border-color: #667eea; 
-        }
-        button { 
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white; 
-            padding: 15px; 
-            border: none; 
-            border-radius: 8px;
-            font-size: 16px;
-            font-weight: bold;
-            width: 100%;
-            cursor: pointer;
-            margin-top: 10px;
-        }
-        button:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
-        }
-        .business-info {
-            background: #f8f9fa;
-            padding: 15px;
-            border-radius: 8px;
-            margin: 20px 0;
-            text-align: center;
-        }
-        .footer {
-            text-align: center;
-            margin-top: 30px;
-            padding-top: 15px;
-            border-top: 1px solid #eee;
-            color: #666;
-            font-size: 12px;
-        }
-        .developer-info {
-            background: #2c3e50;
-            color: white;
-            padding: 15px;
-            border-radius: 8px;
-            margin-top: 20px;
-            text-align: center;
-        }
-        .developer-contact {
-            font-size: 11px;
-            margin: 5px 0;
-        }
-        .powered-by {
-            color: #ff6b6b;
-            font-weight: bold;
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="main-header">
-            <div class="parking-logo">
-                🅿️
-            </div>
-            <div class="header-text">
-                <h2>Vengatesan Car Parking</h2>
-                <p>Secure & Convenient Parking Solutions</p>
-            </div>
-        </div>
+class ParkingBill(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    customer_name = db.Column(db.String(100), nullable=False)
+    vehicle_number = db.Column(db.String(20), nullable=False)
+    vehicle_type = db.Column(db.String(20), nullable=False)
+    slot_number = db.Column(db.String(20), nullable=False)
+    month = db.Column(db.String(20), nullable=False)
+    year = db.Column(db.String(4), nullable=False)
+    payment_mode = db.Column(db.String(20), nullable=False)
+    amount = db.Column(db.Float, default=1000.00)
+    bill_date = db.Column(db.DateTime, default=datetime.now)
+    generated_by = db.Column(db.String(80))
+    is_paid = db.Column(db.Boolean, default=True)
+    
+    def __repr__(self):
+        return f'<ParkingBill {self.customer_name}>'
+
+@login_manager.user_loader
+def load_user(user_id):
+    return User.query.get(int(user_id))
+
+def admin_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if not current_user.is_authenticated or current_user.role != 'admin':
+            flash('Admin access required!', 'danger')
+            return redirect(url_for('login'))
+        return f(*args, **kwargs)
+    return decorated_function
+
+# Create tables
+with app.app_context():
+    db.create_all()
+    # Create default admin user if not exists
+    if not User.query.filter_by(username='admin').first():
+        admin = User(
+            username='admin',
+            password=generate_password_hash('admin123'),
+            role='admin'
+        )
+        db.session.add(admin)
+        db.session.commit()
+
+# Routes
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        username = request.form['username']
+        password = request.form['password']
+        user = User.query.filter_by(username=username).first()
         
-        <div class="business-info">
-            <p><strong>📍 Address:</strong> Tittagudi</p>
-            <p><strong>📞 Contact:</strong> 9791365506</p>
-            <p><strong>💰 Monthly Rate:</strong> Rs. 1000</p>
-        </div>
-        
-        <form action="/generate" method="POST">
-            <div class="form-group">
-                <label>Customer Name:</label>
-                <input type="text" name="name" placeholder="Enter customer full name" required>
-            </div>
-            
-            <div class="form-group">
-                <label>Vehicle Number:</label>
-                <input type="text" name="vehicle_no" placeholder="e.g., TN45AB1234" required>
-            </div>
-            
-            <div class="form-group">
-                <label>Vehicle Type:</label>
-                <select name="vehicle_type" required>
-                    <option value="">Select Vehicle Type</option>
-                    <option value="car">Car</option>
-                    <option value="bike">Bike</option>
-                    <option value="truck">Truck</option>
-                </select>
-            </div>
-            
-            <div class="form-group">
-                <label>Parking Slot Number:</label>
-                <select name="slot_number" required>
-                    <option value="">Select Parking Slot</option>
-                    {% for slot in slots %}
-                    <option value="{{ slot }}">{{ slot }}</option>
-                    {% endfor %}
-                </select>
-            </div>
-            
-            <div class="form-group">
-                <label>Parking Month:</label>
-                <select name="month" required>
-                    <option value="">Select Month</option>
-                    <option value="January">January</option>
-                    <option value="February">February</option>
-                    <option value="March">March</option>
-                    <option value="April">April</option>
-                    <option value="May">May</option>
-                    <option value="June">June</option>
-                    <option value="July">July</option>
-                    <option value="August">August</option>
-                    <option value="September">September</option>
-                    <option value="October">October</option>
-                    <option value="November">November</option>
-                    <option value="December">December</option>
-                </select>
-            </div>
-            
-            <div class="form-group">
-                <label>Year:</label>
-                <select name="year" required>
-                    <option value="">Select Year</option>
-                    {% for year in years %}
-                    <option value="{{ year }}" {% if year == current_year %}selected{% endif %}>{{ year }}</option>
-                    {% endfor %}
-                </select>
-            </div>
-            
-            <div class="form-group">
-                <label>Payment Mode:</label>
-                <select name="payment_mode" required>
-                    <option value="">Select Payment Mode</option>
-                    <option value="Online">Online Payment</option>
-                    <option value="Cash">Cash</option>
-                </select>
-            </div>
-            
-            <button type="submit">Generate Parking Bill PDF</button>
-        </form>
+        if user and check_password_hash(user.password, password):
+            login_user(user)
+            flash('Login successful!', 'success')
+            return redirect(url_for('dashboard'))
+        else:
+            flash('Invalid username or password', 'danger')
+    
+    return render_template('login.html')
 
-        <!-- CodeHive Logo Section -->
-        <div class="codehive-logo-section">
-            <div class="codehive-main">
-                <span class="codehive-code">CODE</span> 
-                <span class="codehive-hive">HIVE</span>
-            </div>
-            <div class="codehive-tagline">LEARN AND LEAD</div>
-        </div>
+@app.route('/logout')
+@login_required
+def logout():
+    logout_user()
+    flash('Logged out successfully!', 'success')
+    return redirect(url_for('login'))
 
-        <div class="developer-info">
-            <div class="developer-contact">📧 Email: codehive143@gmail.com</div>
-            <div class="developer-contact">📱 Phone: +91 63745 76277</div>
-            <div class="developer-contact">🌐 Website: www.codehive.dev</div>
-            <div class="developer-contact">💼 Specialized in: Web Applications & Automation</div>
-        </div>
-
-        <div class="footer">
-            <p>Powered by <span class="powered-by">CodeHive</span> - Your Technology Partner</p>
-        </div>
-    </div>
-</body>
-</html>
-'''
+@app.route('/dashboard')
+@login_required
+def dashboard():
+    today = date.today()
+    monthly_count = ParkingBill.query.filter(
+        db.extract('month', ParkingBill.bill_date) == today.month,
+        db.extract('year', ParkingBill.bill_date) == today.year
+    ).count()
+    
+    total_bills = ParkingBill.query.count()
+    recent_bills = ParkingBill.query.order_by(ParkingBill.bill_date.desc()).limit(5).all()
+    
+    # Get slots occupancy
+    occupied_slots = db.session.query(
+        ParkingBill.slot_number
+    ).filter(
+        ParkingBill.month == today.strftime("%B"),
+        ParkingBill.year == str(today.year)
+    ).distinct().count()
+    
+    available_slots = len(PARKING_SLOTS) - occupied_slots
+    
+    return render_template('dashboard.html',
+                         monthly_count=monthly_count,
+                         total_bills=total_bills,
+                         recent_bills=recent_bills,
+                         available_slots=available_slots,
+                         total_slots=len(PARKING_SLOTS))
 
 @app.route('/')
+@login_required
 def home():
     current_year = datetime.now().year
-    return render_template_string(HTML_TEMPLATE, slots=PARKING_SLOTS, years=YEARS, current_year=current_year)
+    return render_template('index.html', 
+                         slots=PARKING_SLOTS, 
+                         years=YEARS, 
+                         current_year=current_year)
 
 @app.route('/generate', methods=['POST'])
+@login_required
 def generate():
     try:
         # Get form data
         name = request.form['name']
-        vehicle_no = request.form['vehicle_no']
+        vehicle_no = request.form['vehicle_no'].upper()
         vehicle_type = request.form['vehicle_type']
         slot_number = request.form['slot_number']
         month = request.form['month']
         year = request.form['year']
         payment_mode = request.form['payment_mode']
         
+        # Check if slot is already occupied for this month/year
+        existing = ParkingBill.query.filter_by(
+            slot_number=slot_number,
+            month=month,
+            year=year
+        ).first()
+        
+        if existing:
+            flash(f'Slot {slot_number} is already occupied for {month} {year}!', 'danger')
+            return redirect(url_for('home'))
+        
+        # Save to database
+        bill = ParkingBill(
+            customer_name=name,
+            vehicle_number=vehicle_no,
+            vehicle_type=vehicle_type,
+            slot_number=slot_number,
+            month=month,
+            year=year,
+            payment_mode=payment_mode,
+            generated_by=current_user.username
+        )
+        db.session.add(bill)
+        db.session.commit()
+        
         # Create PDF
-        pdf = FPDF()
-        pdf.add_page()
+        pdf = create_pdf(name, vehicle_no, vehicle_type, slot_number, month, year, payment_mode, bill.id)
         
-        # Header - Normal size
-        pdf.set_font("Arial", style="B", size=16)
-        pdf.cell(200, 10, txt="VENGATESAN CAR PARKING", ln=1, align="C")
-        pdf.set_font("Arial", size=10)
-        pdf.cell(200, 8, txt="Tittagudi | Contact: 9791365506", ln=1, align="C")
-        pdf.ln(10)
+        filename = f"Parking_Bill_{name.replace(' ', '_')}_{month}_{year}_{bill.id}.pdf"
         
-        # Title - Normal size
-        pdf.set_font("Arial", style="B", size=18)
-        pdf.cell(200, 15, txt="MONTHLY PARKING BILL", ln=1, align="C")
-        pdf.ln(5)
-        
-        # Bill Details - Normal size
-        pdf.set_font("Arial", style="B", size=12)
-        pdf.cell(200, 10, txt="BILL DETAILS", ln=1)
-        pdf.set_font("Arial", size=11)
-        
-        details = [
-            ("Bill Date", datetime.now().strftime("%d-%m-%Y")),
-            ("Customer Name", name),
-            ("Vehicle Number", vehicle_no),
-            ("Vehicle Type", vehicle_type.upper()),
-            ("Parking Slot", slot_number),
-            ("Parking Period", f"{month} {year}"),
-            ("Payment Mode", payment_mode)
-        ]
-        
-        for label, value in details:
-            pdf.cell(60, 8, txt=label + ":", ln=0)
-            pdf.cell(130, 8, txt=str(value), ln=1)
-        
-        pdf.ln(10)
-        
-        # Amount Section - Normal size
-        pdf.set_font("Arial", style="B", size=12)
-        pdf.cell(200, 10, txt="AMOUNT DETAILS", ln=1)
-        pdf.set_font("Arial", size=11)
-        
-        pdf.cell(120, 10, txt="Monthly Parking Charges:", ln=0)
-        pdf.cell(70, 10, txt=f"Rs. 1000.00", ln=1)
-        
-        pdf.ln(8)
-        
-        # Total Amount - Normal size
-        pdf.set_font("Arial", style="B", size=14)
-        pdf.cell(120, 12, txt="TOTAL AMOUNT:", ln=0)
-        pdf.cell(70, 12, txt=f"Rs. 1000.00", ln=1)
-        
-        pdf.ln(15)
-        
-        # FOOTER SECTION - SMALLER FONT SIZES
-        pdf.set_font("Arial", style="B", size=8)
-        pdf.cell(200, 4, txt="-" * 50, ln=1, align="C")
-        pdf.set_font("Arial", style="B", size=10)
-        pdf.cell(200, 6, txt="CODE HIVE", ln=1, align="C")
-        pdf.set_font("Arial", style="I", size=8)
-        pdf.cell(200, 5, txt="LEARN AND LEAD", ln=1, align="C")
-        pdf.set_font("Arial", style="B", size=8)
-        pdf.cell(200, 4, txt="-" * 50, ln=1, align="C")
-        pdf.ln(2)
-        
-        # Developer Information - Smaller
-        pdf.set_font("Arial", style="B", size=8)
-        pdf.cell(200, 5, txt="Development Partner", ln=1, align="C")
-        pdf.set_font("Arial", size=7)
-        pdf.cell(200, 4, txt="Email: codehive143@gmail.com", ln=1, align="C")
-        pdf.cell(200, 4, txt="Phone: +91 63745 76277", ln=1, align="C")
-        pdf.cell(200, 4, txt="Web: www.codehive.dev", ln=1, align="C")
-        pdf.cell(200, 4, txt="Specialized in Web Applications & Automation", ln=1, align="C")
-        pdf.ln(3)
-        
-        # Final Footer - Smallest
-        pdf.set_font("Arial", style="I", size=7)
-        pdf.cell(200, 4, txt="Thank you for choosing Vengatesan Car Parking!", ln=1, align="C")
-        pdf.cell(200, 4, txt="This is a computer-generated bill.", ln=1, align="C")
-        pdf.ln(2)
-        pdf.set_font("Arial", style="B", size=7)
-        pdf.cell(200, 4, txt="Powered by CodeHive - Your Technology Partner", ln=1, align="C")
-        
-        # Generate PDF in memory
-        pdf_bytes = pdf.output(dest='S').encode('latin-1')
-        
-        filename = f"Parking_Bill_{name.replace(' ', '_')}_{month}_{year}.pdf"
-        
-        return pdf_bytes, 200, {
-            'Content-Type': 'application/pdf',
-            'Content-Disposition': f'attachment; filename={filename}'
-        }
+        return send_file(pdf,
+                        download_name=filename,
+                        as_attachment=True,
+                        mimetype='application/pdf')
         
     except Exception as e:
-        return f"Error generating bill: {str(e)}"
+        flash(f'Error generating bill: {str(e)}', 'danger')
+        return redirect(url_for('home'))
+
+def create_pdf(name, vehicle_no, vehicle_type, slot_number, month, year, payment_mode, bill_id):
+    pdf = FPDF()
+    pdf.add_page()
+    
+    # Header
+    pdf.set_font("Arial", style="B", size=16)
+    pdf.cell(200, 10, txt="VENGATESAN CAR PARKING", ln=1, align="C")
+    pdf.set_font("Arial", size=10)
+    pdf.cell(200, 8, txt="Tittagudi | Contact: 9791365506", ln=1, align="C")
+    pdf.ln(10)
+    
+    # Title
+    pdf.set_font("Arial", style="B", size=18)
+    pdf.cell(200, 15, txt="MONTHLY PARKING BILL", ln=1, align="C")
+    pdf.ln(5)
+    
+    # Bill ID
+    pdf.set_font("Arial", style="B", size=12)
+    pdf.cell(200, 8, txt=f"BILL ID: PB{bill_id:06d}", ln=1, align="C")
+    pdf.ln(5)
+    
+    # Bill Details
+    pdf.set_font("Arial", style="B", size=12)
+    pdf.cell(200, 10, txt="BILL DETAILS", ln=1)
+    pdf.set_font("Arial", size=11)
+    
+    details = [
+        ("Bill Date", datetime.now().strftime("%d-%m-%Y %H:%M")),
+        ("Customer Name", name),
+        ("Vehicle Number", vehicle_no),
+        ("Vehicle Type", vehicle_type.upper()),
+        ("Parking Slot", slot_number),
+        ("Parking Period", f"{month} {year}"),
+        ("Payment Mode", payment_mode),
+        ("Generated By", current_user.username),
+        ("Status", "PAID")
+    ]
+    
+    for label, value in details:
+        pdf.cell(60, 8, txt=label + ":", ln=0)
+        pdf.cell(130, 8, txt=str(value), ln=1)
+    
+    pdf.ln(10)
+    
+    # Amount Section
+    pdf.set_font("Arial", style="B", size=12)
+    pdf.cell(200, 10, txt="AMOUNT DETAILS", ln=1)
+    pdf.set_font("Arial", size=11)
+    
+    pdf.cell(120, 10, txt="Monthly Parking Charges:", ln=0)
+    pdf.cell(70, 10, txt=f"Rs. 1000.00", ln=1)
+    
+    pdf.ln(8)
+    
+    # Total Amount
+    pdf.set_font("Arial", style="B", size=14)
+    pdf.cell(120, 12, txt="TOTAL AMOUNT:", ln=0)
+    pdf.cell(70, 12, txt=f"Rs. 1000.00", ln=1)
+    
+    pdf.ln(15)
+    
+    # Terms and Conditions
+    pdf.set_font("Arial", style="B", size=10)
+    pdf.cell(200, 8, txt="TERMS & CONDITIONS:", ln=1)
+    pdf.set_font("Arial", size=8)
+    terms = [
+        "1. This bill is valid only for the specified month.",
+        "2. Vehicle should not block other slots.",
+        "3. Parking charges are non-refundable.",
+        "4. Management is not responsible for any damage/theft.",
+        "5. Renewal should be done before 5th of every month."
+    ]
+    
+    for term in terms:
+        pdf.cell(200, 5, txt=term, ln=1)
+    
+    pdf.ln(10)
+    
+    # Footer
+    create_footer(pdf)
+    
+    # Save to BytesIO
+    import io
+    pdf_bytes = pdf.output(dest='S').encode('latin-1')
+    pdf_io = io.BytesIO(pdf_bytes)
+    pdf_io.seek(0)
+    
+    return pdf_io
+
+def create_footer(pdf):
+    pdf.set_font("Arial", style="B", size=8)
+    pdf.cell(200, 4, txt="-" * 50, ln=1, align="C")
+    pdf.set_font("Arial", style="B", size=10)
+    pdf.cell(200, 6, txt="CODE HIVE", ln=1, align="C")
+    pdf.set_font("Arial", style="I", size=8)
+    pdf.cell(200, 5, txt="LEARN AND LEAD", ln=1, align="C")
+    pdf.set_font("Arial", style="B", size=8)
+    pdf.cell(200, 4, txt="-" * 50, ln=1, align="C")
+    pdf.ln(2)
+    
+    pdf.set_font("Arial", style="B", size=8)
+    pdf.cell(200, 5, txt="Development Partner", ln=1, align="C")
+    pdf.set_font("Arial", size=7)
+    pdf.cell(200, 4, txt="Email: codehive143@gmail.com", ln=1, align="C")
+    pdf.cell(200, 4, txt="Phone: +91 63745 76277", ln=1, align="C")
+    pdf.cell(200, 4, txt="Web: www.codehive.dev", ln=1, align="C")
+    pdf.ln(3)
+    
+    pdf.set_font("Arial", style="I", size=7)
+    pdf.cell(200, 4, txt="Thank you for choosing Vengatesan Car Parking!", ln=1, align="C")
+    pdf.cell(200, 4, txt="This is a computer-generated bill.", ln=1, align="C")
+
+# Admin Routes
+@app.route('/admin/bills')
+@admin_required
+def admin_bills():
+    page = request.args.get('page', 1, type=int)
+    bills = ParkingBill.query.order_by(ParkingBill.bill_date.desc()).paginate(page=page, per_page=20)
+    return render_template('admin/bills.html', bills=bills)
+
+@app.route('/admin/users')
+@admin_required
+def admin_users():
+    users = User.query.all()
+    return render_template('admin/users.html', users=users)
+
+@app.route('/admin/add_user', methods=['POST'])
+@admin_required
+def add_user():
+    username = request.form['username']
+    password = request.form['password']
+    role = request.form['role']
+    
+    if User.query.filter_by(username=username).first():
+        flash('Username already exists!', 'danger')
+        return redirect(url_for('admin_users'))
+    
+    user = User(
+        username=username,
+        password=generate_password_hash(password),
+        role=role
+    )
+    db.session.add(user)
+    db.session.commit()
+    
+    flash('User added successfully!', 'success')
+    return redirect(url_for('admin_users'))
+
+@app.route('/admin/delete_user/<int:id>')
+@admin_required
+def delete_user(id):
+    if id == 1:
+        flash('Cannot delete primary admin!', 'danger')
+        return redirect(url_for('admin_users'))
+    
+    user = User.query.get_or_404(id)
+    db.session.delete(user)
+    db.session.commit()
+    flash('User deleted successfully!', 'success')
+    return redirect(url_for('admin_users'))
+
+@app.route('/admin/reports')
+@admin_required
+def reports():
+    # Monthly report
+    bills = db.session.query(
+        ParkingBill.month,
+        ParkingBill.year,
+        db.func.count(ParkingBill.id).label('count'),
+        db.func.sum(ParkingBill.amount).label('total')
+    ).group_by(ParkingBill.month, ParkingBill.year).all()
+    
+    # Vehicle type distribution
+    vehicle_stats = db.session.query(
+        ParkingBill.vehicle_type,
+        db.func.count(ParkingBill.id).label('count')
+    ).group_by(ParkingBill.vehicle_type).all()
+    
+    return render_template('admin/reports.html', 
+                         monthly_reports=bills,
+                         vehicle_stats=vehicle_stats)
+
+@app.route('/search', methods=['GET'])
+@login_required
+def search():
+    query = request.args.get('q', '')
+    if query:
+        bills = ParkingBill.query.filter(
+            (ParkingBill.customer_name.contains(query)) |
+            (ParkingBill.vehicle_number.contains(query)) |
+            (ParkingBill.slot_number.contains(query))
+        ).order_by(ParkingBill.bill_date.desc()).limit(50).all()
+    else:
+        bills = []
+    
+    return render_template('search.html', bills=bills, query=query)
 
 if __name__ == '__main__':
-    app.run(debug=True)
-
-
+    app.run(debug=True, port=5000)
